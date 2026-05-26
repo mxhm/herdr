@@ -1,33 +1,58 @@
 [Unit]
 Description=herdr server (terminal workspace manager for AI coding agents)
-After=default.target
+After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.nix-profile/bin/herdr server
+User=max
+Group=max
+WorkingDirectory=/home/max
+ExecStart=/home/max/.nix-profile/bin/herdr server
 Restart=on-failure
 RestartSec=5
 
-# Hardening directives are limited to those that work under systemd
-# --user mode (no CAP_SETPCAP / CAP_MKNOD / CAP_SYS_TIME available).
-# Excluded — fail with status=218/CAPABILITIES under unprivileged
-# systemd on Ubuntu 24.04: PrivateDevices, ProtectKernelModules,
-# ProtectKernelLogs, ProtectClock, ProtectHostname, RestrictNamespaces,
-# CapabilityBoundingSet, AmbientCapabilities, PrivateUsers.
+Environment=PATH=/home/max/.nix-profile/bin:/home/max/.local/share/mise/shims:/home/max/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/max
+
+# System-unit hardening for a single-user dev box.
+#
+# Pane shells AND their children (bwx/bwrap, agents) inherit these
+# restrictions — so directives that hide user files or break
+# mount/namespace setup are off the menu.
+#
+# Excluded (would break the multiplexer's primary use case):
+#   - PrivateTmp=yes: hides host /tmp from pane shells; user's bwx
+#     workspaces under /tmp become unreachable.
+#   - ProtectHome=read-only: pane shells can't edit user files; ReadWrite-
+#     Paths whitelist is too restrictive for a general multiplexer.
+#   - SystemCallFilter=~@mount / RestrictNamespaces=yes: bwx/bwrap need
+#     mount(2) + unshare() to set up agent sandboxes.
+#   - SystemCallFilter=~@privileged: zsh calls setfsuid at startup.
+#   - ProtectControlGroups=yes: blocks bwrap's cgroup-namespace probe.
+#
+# What's still in: system-binary read-only (ProtectSystem=strict),
+# capability drops (CapabilityBoundingSet, AmbientCapabilities),
+# minimal /dev (PrivateDevices), kernel protections (Tunables/Modules/
+# Logs/Clock/Hostname), JIT-spray defeat (MemoryDenyWriteExecute),
+# limited socket families.
+
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=%h/.config/herdr %h/.local/share/herdr %h/.local/state/herdr %h/.cache/herdr
-PrivateTmp=yes
+PrivateDevices=yes
 ProtectKernelTunables=yes
-ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictRealtime=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources @mount @keyring @debug @cpu-emulation @obsolete
+SystemCallFilter=~@keyring @debug @cpu-emulation @obsolete
+CapabilityBoundingSet=
+AmbientCapabilities=
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
