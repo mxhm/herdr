@@ -38,6 +38,7 @@ pub struct AgentDetection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Agent {
     Pi,
+    Omp,
     Claude,
     Codex,
     Gemini,
@@ -58,6 +59,7 @@ pub enum Agent {
 pub fn agent_label(agent: Agent) -> &'static str {
     match agent {
         Agent::Pi => "pi",
+        Agent::Omp => "omp",
         Agent::Claude => "claude",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
@@ -80,6 +82,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
     let name = agent.trim().to_lowercase();
     match name.as_str() {
         "pi" => Some(Agent::Pi),
+        "omp" => Some(Agent::Omp),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -106,6 +109,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
     // Match against known binary names
     match name.as_str() {
         "pi" => Some(Agent::Pi),
+        "omp" => Some(Agent::Omp),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -174,6 +178,7 @@ pub fn detect_agent(agent: Option<Agent>, screen_content: &str) -> AgentDetectio
     };
     let state = match agent {
         Agent::Pi => detect_pi(screen_content),
+        Agent::Omp => detect_omp(screen_content),
         Agent::Claude => detect_claude(screen_content),
         Agent::Codex => detect_codex(screen_content),
         Agent::Gemini => detect_gemini(screen_content),
@@ -204,6 +209,16 @@ pub fn detect_agent(agent: Option<Agent>, screen_content: &str) -> AgentDetectio
 
 fn detect_pi(content: &str) -> AgentState {
     // pi shows "Working..." when the agent is processing
+    if content.contains("Working...") {
+        return AgentState::Working;
+    }
+    AgentState::Idle
+}
+
+fn detect_omp(content: &str) -> AgentState {
+    // omp (a fork of pi) shows "Working..." while the agent is processing.
+    // Blocked-state heuristics are deliberately minimal until the
+    // tool-approval prompt shapes have been observed across skills.
     if content.contains("Working...") {
         return AgentState::Working;
     }
@@ -1620,6 +1635,35 @@ mod tests {
     #[test]
     fn pi_idle_no_working_text() {
         assert_eq!(detect_pi("some output\n\n> ready"), AgentState::Idle);
+    }
+
+    // ---- omp ----
+
+    #[test]
+    fn omp_working_when_working() {
+        assert_eq!(detect_omp("some output\nWorking..."), AgentState::Working);
+    }
+
+    #[test]
+    fn omp_working_working_in_middle() {
+        assert_eq!(detect_omp("line1\nWorking...\nline3"), AgentState::Working);
+    }
+
+    #[test]
+    fn omp_idle_at_prompt() {
+        assert_eq!(detect_omp("❯ "), AgentState::Idle);
+    }
+
+    #[test]
+    fn omp_idle_no_working_text() {
+        assert_eq!(detect_omp("some output\n\n> ready"), AgentState::Idle);
+    }
+
+    #[test]
+    fn omp_identified_by_process_name() {
+        assert_eq!(identify_agent("omp"), Some(Agent::Omp));
+        assert_eq!(parse_agent_label("omp"), Some(Agent::Omp));
+        assert_eq!(agent_label(Agent::Omp), "omp");
     }
 
     // ---- Claude Code ----
