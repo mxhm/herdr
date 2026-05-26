@@ -54,9 +54,15 @@ sudo loginctl enable-linger $USER
 
 If a hardening directive denies a syscall herdr needs, the service will
 fail to start and `journalctl --user -u herdr -e` will name the
-offending family. Likely candidates to relax (in decreasing likelihood):
-`MemoryDenyWriteExecute`, `RestrictNamespaces`, `SystemCallFilter
-~@keyring`.
+offending family. Likely candidates to relax: `MemoryDenyWriteExecute`,
+`SystemCallFilter ~@keyring`.
+
+The unit only carries directives that work under unprivileged `systemd
+--user`. Excluded — fail with `status=218/CAPABILITIES` on Ubuntu 24.04
+because they need `CAP_SETPCAP` / `CAP_MKNOD` / `CAP_SYS_TIME`:
+`PrivateDevices`, `ProtectKernelModules`, `ProtectKernelLogs`,
+`ProtectClock`, `ProtectHostname`, `RestrictNamespaces`,
+`CapabilityBoundingSet`, `AmbientCapabilities`, `PrivateUsers`.
 
 ## Upgrade
 
