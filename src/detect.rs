@@ -1163,8 +1163,19 @@ fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) 
         "python" | "python3" => script_arg_agent_name(argv, &["-c"], &["-m"]),
         "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name(argv, &["-c"], &[]),
         "tmux" => None,
+        "bwx" => bwx_wrapped_agent_name(argv),
         _ => None,
     }
+}
+
+/// Extract the wrapped agent from a `bwx <flags...> -- <agent> [args...]`
+/// invocation. bwx (a sandbox launcher) splits on the first standalone
+/// `--`: everything before is bwx flags and workspaces, everything after
+/// is the command to run inside the sandbox.
+fn bwx_wrapped_agent_name(argv: &[String]) -> Option<String> {
+    let dash_idx = argv.iter().position(|a| a == "--")?;
+    let token = argv.get(dash_idx + 1)?;
+    agent_name_from_path_token(token)
 }
 
 fn script_arg_agent_name(
@@ -1288,7 +1299,7 @@ fn process_priority(process: &crate::platform::ForegroundProcess, normalized_nam
 fn is_generic_runtime_or_shell(name: &str) -> bool {
     matches!(
         name,
-        "sh" | "bash" | "zsh" | "fish" | "tmux" | "node" | "bun" | "python" | "python3"
+        "sh" | "bash" | "zsh" | "fish" | "tmux" | "node" | "bun" | "python" | "python3" | "bwx"
     )
 }
 
@@ -1413,6 +1424,32 @@ mod tests {
             identify_agent_in_job(&job),
             Some((Agent::Codex, "codex".to_string()))
         );
+    }
+
+    #[test]
+    fn identify_agent_in_job_unwraps_bwx_sandbox() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 200,
+            processes: vec![foreground_process(
+                200,
+                "bwx",
+                &["bwx", "--allow-loopback", "8000", "--", "omp", "-p", "x"],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Omp, "omp".to_string()))
+        );
+    }
+
+    #[test]
+    fn bwx_wrapped_agent_name_returns_none_without_double_dash() {
+        let argv: Vec<String> = ["bwx", "--allow-loopback", "8000", "omp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(bwx_wrapped_agent_name(&argv), None);
     }
 
     #[test]
