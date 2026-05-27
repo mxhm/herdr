@@ -19,7 +19,7 @@
 # only to satisfy kernel.apparmor_restrict_unprivileged_userns=1.
 #
 # Install:
-#   sudo install -m 0644 share/apparmor.herdr /etc/apparmor.d/herdr
+#   sudo install -m 0644 deploy/apparmor.herdr /etc/apparmor.d/herdr
 #   sudo apparmor_parser -r /etc/apparmor.d/herdr
 #
 # The glob matches any herdr binary in /nix/store, since the actual exec

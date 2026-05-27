@@ -22,17 +22,18 @@ procfs.
 - `bwx-host-setup` already run on the host so `/etc/apparmor.d/{bwx,bwrap}`
   are loaded (Ubuntu 24.04 enforces `kernel.apparmor_restrict_unprivileged_userns=1`).
   Verify: `aa-status | grep -E '(bwx|bwrap)'`.
-- This repo cloned on the `omp-bwx-local` branch:
+- This fork cloned on the `omp-bwx-local` branch:
   ```sh
-  git clone --branch omp-bwx-local https://github.com/mxhm/herdr ~/scratch/herdr
+  # Substitute <YOUR_GH_USER> with the GitHub account hosting the fork.
+  git clone --branch omp-bwx-local https://github.com/<YOUR_GH_USER>/herdr ~/herdr
   ```
-  (Substitute your preferred clone path. `~/scratch/herdr` is the
+  (Substitute your preferred clone path. `~/herdr` is the
    convention used in the docs below.)
 
 ## 1. Install via Nix
 
 ```sh
-cd ~/scratch/herdr/deploy
+cd ~/herdr/deploy
 nix flake lock
 nix profile install .#default
 which herdr     # ~/.nix-profile/bin/herdr -> /nix/store/<hash>-herdr-…/bin/herdr
@@ -51,7 +52,7 @@ to the herdr binary so the kernel grants the user-namespace
 capability.
 
 ```sh
-sudo install -m 0644 ~/scratch/herdr/deploy/apparmor.herdr /etc/apparmor.d/herdr
+sudo install -m 0644 ~/herdr/deploy/apparmor.herdr /etc/apparmor.d/herdr
 sudo apparmor_parser -r /etc/apparmor.d/herdr
 sudo aa-status | grep herdr   # confirm loaded
 ```
@@ -68,7 +69,7 @@ both to your local username before deploying**. `WorkingDirectory=`,
 expands to that user's `$HOME`, so no other edits are needed.
 
 ```sh
-sudo install -m 0644 ~/scratch/herdr/deploy/herdr.service /etc/systemd/system/
+sudo install -m 0644 ~/herdr/deploy/herdr.service /etc/systemd/system/
 sudo sed -i "s/^User=CHANGEME$/User=$USER/" /etc/systemd/system/herdr.service
 sudo sed -i "s/^Group=CHANGEME$/Group=$(id -gn)/" /etc/systemd/system/herdr.service
 sudo systemctl daemon-reload
@@ -111,7 +112,7 @@ What's *not* protected:
 ## Upgrade
 
 ```sh
-cd ~/scratch/herdr
+cd ~/herdr
 git pull origin omp-bwx-local
 cd deploy && nix flake update
 nix profile upgrade herdr
