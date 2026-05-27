@@ -1332,6 +1332,7 @@ mod tests {
     #[test]
     fn identify_known_agents() {
         assert_eq!(identify_agent("pi"), Some(Agent::Pi));
+        assert_eq!(identify_agent("omp"), Some(Agent::Omp));
         assert_eq!(identify_agent("claude"), Some(Agent::Claude));
         assert_eq!(identify_agent("claude-code"), Some(Agent::Claude));
         assert_eq!(identify_agent("codex"), Some(Agent::Codex));
@@ -1357,6 +1358,7 @@ mod tests {
     #[test]
     fn parse_known_agent_labels() {
         assert_eq!(parse_agent_label("pi"), Some(Agent::Pi));
+        assert_eq!(parse_agent_label("omp"), Some(Agent::Omp));
         assert_eq!(parse_agent_label("claude"), Some(Agent::Claude));
         assert_eq!(parse_agent_label("cursor-agent"), Some(Agent::Cursor));
         assert_eq!(parse_agent_label("agy"), Some(Agent::Antigravity));
