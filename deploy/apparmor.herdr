@@ -1,0 +1,33 @@
+# /etc/apparmor.d/herdr
+#
+# AppArmor profile for the herdr binary.
+#
+# Ubuntu 24.04 ships kernel.apparmor_restrict_unprivileged_userns=1, which
+# strips capabilities from any process that creates an unprivileged user
+# namespace unless an AppArmor profile grants `userns`. herdr itself does
+# not unshare user namespaces -- but it spawns pane shells that, in turn,
+# spawn bwx -> bwrap. When the systemd unit applies any directive that
+# triggers a private mount namespace, bwrap inherits that namespace and
+# AppArmor's profile-by-path matching falls back to the generic
+# `unprivileged_userns` profile (despite /etc/apparmor.d/bwrap being
+# installed), denying bwrap's own namespace setup with "Failed name
+# lookup - disconnected path".
+#
+# Mirrors bwx's pattern: flags=(unconfined) -- the security boundary for
+# herdr is the systemd unit (seccomp + cap bounding) + bwx's own
+# isolation of the agent inside the sandbox. AppArmor on herdr exists
+# only to satisfy kernel.apparmor_restrict_unprivileged_userns=1.
+#
+# Install:
+#   sudo install -m 0644 share/apparmor.herdr /etc/apparmor.d/herdr
+#   sudo apparmor_parser -r /etc/apparmor.d/herdr
+#
+# The glob matches any herdr binary in /nix/store, since the actual exec
+# path is /nix/store/<hash>-herdr-<version>/bin/herdr.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile herdr /nix/store/*-herdr-*/bin/herdr flags=(unconfined) {
+    userns,
+}

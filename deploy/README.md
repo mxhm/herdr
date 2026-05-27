@@ -1,103 +1,98 @@
 # Deploy — patched herdr via Nix flake + systemd system unit
 
 Install the `omp-bwx-local` branch of this fork on a Linux host as a
-hardened **system-mode** `systemd` service (needs sudo for install
-and management, but the herdr process runs as your user). Pulls the
-patched producer flake at the repo root via `path:..`, so the deployed
-binary always matches the checked-out branch.
+hardened systemd **system** unit that runs as your user. The pattern
+mirrors bwx's deployment: prctl/seccomp/cap hardening with explicit
+`PrivateMounts=no` so nested bubblewrap can mount its own procfs.
 
 ## Prerequisites
 
-- Linux host (tested on Ubuntu 24.04).
-- Nix installed in single-user mode:
+- Linux host (tested on Ubuntu 24.04, systemd 255).
+- Nix installed:
   ```sh
   sh <(curl -L https://nixos.org/nix/install) --no-daemon
-  exec $SHELL    # reload to pick up the nix profile script
-  nix --version
+  exec $SHELL
   ```
-- This repo cloned to a working dir, e.g. `~/scratch/herdr`, on the
-  `omp-bwx-local` branch:
+- `bwx-host-setup` already run on the host so
+  `/etc/apparmor.d/{bwx,bwrap}` are loaded (Ubuntu 24.04 enforces
+  `kernel.apparmor_restrict_unprivileged_userns=1`).
+- This repo cloned to a working dir on the `omp-bwx-local` branch:
   ```sh
   git clone --branch omp-bwx-local https://github.com/mxhm/herdr ~/scratch/herdr
   ```
 
-## Install (Nix)
+## Install — Nix
 
 ```sh
 cd ~/scratch/herdr/deploy
 nix flake lock
 nix profile install .#default
-which herdr     # ~/.nix-profile/bin/herdr → /nix/store/<hash>-herdr-…/bin/herdr
+which herdr     # ~/.nix-profile/bin/herdr -> /nix/store/<hash>-herdr-…/bin/herdr
 herdr --version
 herdr update    # expected: "self-update is disabled for Nix installs…"
 ```
 
-## systemd system unit
+## Install — AppArmor
 
-Run as a system service supervised by root-systemd but executing as
-your user. This is required to get the hardening directives that fail
-under unprivileged user-mode systemd (capability bounding set, several
-`Protect*` directives, etc.).
+The bwx + bwrap profiles aren't enough on their own. When systemd
+wraps herdr, AppArmor's profile-by-path matching for bwrap fails inside
+herdr's namespace and falls back to the generic `unprivileged_userns`
+profile, denying bwrap's setup. The herdr profile fixes that:
+
+```sh
+sudo install -m 0644 ~/scratch/herdr/deploy/apparmor.herdr /etc/apparmor.d/herdr
+sudo apparmor_parser -r /etc/apparmor.d/herdr
+sudo aa-status | grep herdr   # confirm loaded
+```
+
+## Install — systemd
+
+The shipped unit hard-codes `User=max`. **Edit `User=`, `Group=`,
+`WorkingDirectory=`, and the absolute path in `ExecStart=` before
+deploying.**
 
 ```sh
 sudo cp ~/scratch/herdr/deploy/herdr.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now herdr.service
 systemctl status herdr.service
-journalctl -u herdr.service -n 50
 ```
-
-Before first start, make sure the writable directories herdr needs
-exist (they're whitelisted in `ReadWritePaths=`):
-
-```sh
-mkdir -p ~/.config/herdr ~/.local/share/herdr ~/.local/state/herdr ~/.cache/herdr
-```
-
-**Edit the unit's `User=` / `Group=` / `WorkingDirectory=` /
-`ReadWritePaths=` to match the user you want it running as.** The
-shipped unit hard-codes `max` — adjust before deploying.
 
 ## What the hardening blocks (and doesn't)
 
-Load-bearing protections that survive the bwx + pane-shell constraints:
+`PrivateMounts=no` is load-bearing — without it bwrap fails with
+"Can't mount proc on /newroot/proc" because any systemd directive that
+creates a private mount namespace bind-mounts RO over parts of /proc,
+which trips the kernel's `mount_too_revealing()` check when bwrap
+tries to mount a fresh procfs in its user namespace
+([bubblewrap#707](https://github.com/containers/bubblewrap/issues/707),
+[systemd#35369](https://github.com/systemd/systemd/issues/35369)).
 
-- **`SystemCallFilter=~@debug`** — pane shells (and any RCE'd herdr)
-  cannot `ptrace(2)` or `process_vm_readv` other processes. Defeats
-  the "exploit one process → scrape credentials from ssh-agent /
-  GPG-agent" pivot.
-- **`MemoryDenyWriteExecute=yes`** — defeats JIT-spray exploit
-  techniques against the Zig VT parser (which is built `ReleaseFast`
-  with bounds checks off).
-- **`NoNewPrivileges=yes`** — exec'ing setuid binaries (`sudo`,
-  `passwd`, …) doesn't elevate. Defeats classic priv-esc chains.
-- **`ProtectSystem=strict`** — `/usr`, `/etc`, `/boot` mounted
-  read-only. An RCE'd herdr cannot drop a backdoor in `/usr/local/bin`
-  or modify `/etc/cron.d/...`. **Trade-off**: you can't
-  `sudo apt install foo` from a herdr pane (apt writes to
-  `/usr/lib/...`). Run system-modifying sudo from a separate ssh
-  session.
-- **`RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`** — no
-  netlink, packet, bluetooth, ax25 sockets. Defeats raw-socket
-  sniffing and exotic-protocol attacks.
-- **`CapabilityBoundingSet=` (empty)** — file caps on exec'd binaries
-  are silently dropped.
+So the unit relies on prctl/seccomp hardening (no FS-namespace
+isolation):
 
-What's *not* protected (would break the multiplexer use case):
+| Directive | Blocks (concrete attacker move) |
+|---|---|
+| `NoNewPrivileges=yes` | exec'ing setuid binaries (`sudo`, `passwd`) to escalate |
+| `SystemCallFilter=~@debug` | `ptrace`/`process_vm_readv` — exploit-one-process-and-scrape-another-process's-memory |
+| `SystemCallFilter=~@keyring` | abusing kernel keyring API |
+| `MemoryDenyWriteExecute=yes` | JIT-spray exploit techniques |
+| `LockPersonality=yes` | personality(READ_IMPLIES_EXEC) backdoor for MDWE |
+| `RestrictAddressFamilies=` | netlink monitoring, AF_PACKET sniffing, etc. (AF_NETLINK granted for bwrap's loopback setup) |
+| `RestrictRealtime=yes` | RT scheduling priority inversion |
+| `AmbientCapabilities=` (empty) | starts with no caps |
 
-- `$HOME` is writable — pane shells need to edit user files.
-- `/tmp` is shared — bwx uses workspaces under `/tmp`.
-- `mount(2)` and `unshare()` syscalls allowed — bwx/bwrap need them
-  for the agent sandbox.
-
-For full rationale of what's excluded and why, see the long comment
-block in `herdr.service`.
+What's *not* protected:
+- The user's `$HOME` is fully accessible (multiplexer needs it).
+- `/usr`, `/etc`, `/boot` aren't read-only-bound (but `max` can't write
+  them anyway — they're root-owned).
+- bwx-spawned agents are isolated by bwx's own namespaces, not herdr's.
 
 ## Upgrade
 
 ```sh
 cd ~/scratch/herdr
-git pull origin omp-bwx-local      # rebase the fork periodically
+git pull origin omp-bwx-local
 cd deploy && nix flake update
 nix profile upgrade herdr
 sudo systemctl restart herdr
@@ -108,8 +103,22 @@ sudo systemctl restart herdr
 - `herdr update` errors with the Nix message.
 - `omp` running natively in a herdr pane shows agent label `omp`
   (Patch A — verified live).
-- `bwx ... -- omp ...` (e.g. via `womp`) running in a herdr pane shows
-  agent label `omp` via bwx wrapper extraction (Patch B — verified
-  via unit test; live runtime verification requires an attached TUI
-  client).
+- `bwx ... -- omp ...` running in a herdr pane shows agent label `omp`
+  via bwx wrapper extraction (Patch B — verified live).
 - `journalctl -u herdr -n 200` shows no syscall denials.
+- `pgrep -af "bwx|bwrap"` inside a herdr pane shows the full sandbox
+  process tree.
+
+## Troubleshooting
+
+- **`bwrap: Can't mount proc on /newroot/proc: Operation not permitted`** —
+  some Protect*/Private* directive crept back in. Confirm
+  `systemctl show -p PrivateMounts herdr.service` returns
+  `PrivateMounts=no`.
+- **`bwrap: Can't set hostname to bwx: Operation not permitted`** —
+  `ProtectHostname=yes` is set; remove it.
+- **`bwrap: loopback: Failed to create NETLINK_ROUTE socket`** —
+  `AF_NETLINK` missing from `RestrictAddressFamilies=`.
+- **AppArmor `unprivileged_userns` denying bwrap** — `apparmor.herdr`
+  not loaded, or the herdr binary path doesn't match the profile glob.
+  Adjust the glob in `apparmor.herdr` and `apparmor_parser -r`.

@@ -14,44 +14,43 @@ RestartSec=5
 Environment=PATH=/home/max/.nix-profile/bin:/home/max/.local/share/mise/shims:/home/max/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/max
 
-# System-unit hardening for a single-user dev box.
+# Hardening compatible with bwx-spawning panes. PrivateMounts=no is
+# load-bearing: any directive that creates a private mount namespace
+# (ProtectSystem, ProtectHome, PrivateTmp, PrivateDevices,
+# ProtectKernel{Tunables,Modules,Logs,Clock,Hostname}, ReadOnlyPaths,
+# ...) causes systemd to bind-mount RO over parts of /proc, which
+# trips the kernel's mount_too_revealing() check when bwrap tries to
+# mount a fresh procfs inside its user namespace -- failing with
+# "Can't mount proc on /newroot/proc: Operation not permitted".
+# Documented at containers/bubblewrap#707, systemd#35369.
 #
-# Pane shells AND their children (bwx/bwrap, agents) inherit these
-# restrictions — so directives that hide user files or break
-# mount/namespace setup are off the menu.
-#
-# Excluded (would break the multiplexer's primary use case):
-#   - PrivateTmp=yes: hides host /tmp from pane shells; user's bwx
-#     workspaces under /tmp become unreachable.
-#   - ProtectHome=read-only: pane shells can't edit user files; ReadWrite-
-#     Paths whitelist is too restrictive for a general multiplexer.
-#   - SystemCallFilter=~@mount / RestrictNamespaces=yes: bwx/bwrap need
-#     mount(2) + unshare() to set up agent sandboxes.
-#   - SystemCallFilter=~@privileged: zsh calls setfsuid at startup.
-#   - ProtectControlGroups=yes: blocks bwrap's cgroup-namespace probe.
-#
-# What's still in: system-binary read-only (ProtectSystem=strict),
-# capability drops (CapabilityBoundingSet, AmbientCapabilities),
-# minimal /dev (PrivateDevices), kernel protections (Tunables/Modules/
-# Logs/Clock/Hostname), JIT-spray defeat (MemoryDenyWriteExecute),
-# limited socket families.
-
+# So we explicitly disable the implicit private mount namespace and
+# rely on prctl/seccomp/cap-bounding hardening that doesn't require it.
+# What's lost: filesystem-level isolation. Acceptable because the
+# herdr binary runs as the user (no caps) -- it can't write to /usr,
+# /etc, /boot anyway. The pane shells inherit the same uid, so the
+# multiplexer use case is unchanged. The agent inside bwx is isolated
+# by bwx's own user/mount/pid namespace, not by herdr's.
+PrivateMounts=no
 NoNewPrivileges=yes
-ProtectSystem=strict
-PrivateDevices=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectKernelLogs=yes
-ProtectClock=yes
-ProtectHostname=yes
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictRealtime=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
-SystemCallFilter=@system-service
+
+# @system-service is the curated whitelist for system services.
+# @mount and sethostname must be added explicitly -- bwrap needs both.
+SystemCallFilter=@system-service @mount sethostname
+# Deny categories an exploited herdr could use to scrape other
+# processes' memory (ptrace via @debug), abuse the kernel keyring,
+# emulate guests (@cpu-emulation), or use deprecated syscalls.
 SystemCallFilter=~@keyring @debug @cpu-emulation @obsolete
-CapabilityBoundingSet=
+
+# AmbientCapabilities= (empty) -- herdr starts with no ambient caps.
+# CapabilityBoundingSet cannot be empty: bwrap needs CAP_SYS_ADMIN
+# inside its own user namespace for mount, sethostname, unshare. The
+# bounding set propagates to children, so an empty set would break bwx.
 AmbientCapabilities=
 
 [Install]
