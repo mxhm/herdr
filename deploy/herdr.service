@@ -4,15 +4,18 @@ After=network.target
 
 [Service]
 Type=simple
-User=max
-Group=max
-WorkingDirectory=/home/max
-ExecStart=/home/max/.nix-profile/bin/herdr server
+
+# Required: change User= and Group= to the local user before deploying.
+# %h expands to that user's home dir, so PATH/HOME below don't need editing.
+User=CHANGEME
+Group=CHANGEME
+WorkingDirectory=%h
+ExecStart=%h/.nix-profile/bin/herdr server
 Restart=on-failure
 RestartSec=5
 
-Environment=PATH=/home/max/.nix-profile/bin:/home/max/.local/share/mise/shims:/home/max/.cargo/bin:/usr/local/bin:/usr/bin:/bin
-Environment=HOME=/home/max
+Environment=PATH=%h/.nix-profile/bin:%h/.local/share/mise/shims:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
 
 # Hardening compatible with bwx-spawning panes. PrivateMounts=no is
 # load-bearing: any directive that creates a private mount namespace
