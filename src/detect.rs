@@ -219,7 +219,31 @@ fn pi_style_working(content: &str) -> bool {
         || content.contains("Working...")
 }
 
+// pi/omp render agent-initiated, wait-on-user prompts (the `ask` tool and the
+// plan-mode approval menu) through the shared pi-tui select dialog. Every such
+// dialog draws the same footer help line — verbatim on omp 15.5.10:
+//
+//   up/down navigate  enter select  esc cancel
+//
+// (multi-question asks insert "  ←/→ question", plan review may insert
+// "  <key> open in editor", but the "navigate" + "enter select" pair is always
+// present). We key on that pair because it is unique to the live select dialog:
+// it is absent from the Working spinner ("⠋ Working… (esc to interrupt)") and
+// from the Idle prompt box (an empty input frame).
+//
+// This MUST win over the Working check: when the dialog is up, the long-task
+// status line keeps a stale "Working… (esc to interrupt)" row in the scrollback
+// above the dialog, so `pi_style_working` is still true. Matching the footer
+// chrome lets Blocked override that.
+fn pi_style_blocked(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    lower.contains("enter select") && lower.contains("navigate")
+}
+
 fn detect_pi(content: &str) -> AgentState {
+    if pi_style_blocked(content) {
+        return AgentState::Blocked;
+    }
     if pi_style_working(content) {
         return AgentState::Working;
     }
@@ -227,9 +251,13 @@ fn detect_pi(content: &str) -> AgentState {
 }
 
 fn detect_omp(content: &str) -> AgentState {
-    // omp is a fork of pi and shares the working indicator. Blocked-state
-    // heuristics are deliberately minimal until the tool-approval prompt
-    // shapes have been observed across skills.
+    // omp is a fork of pi and shares both the working indicator and the
+    // pi-tui select dialog used by the `ask` tool and plan-mode approval.
+    // Blocked must be checked before Working: a stale spinner row often
+    // lingers above a live select dialog (see `pi_style_blocked`).
+    if pi_style_blocked(content) {
+        return AgentState::Blocked;
+    }
     if pi_style_working(content) {
         return AgentState::Working;
     }
@@ -1737,7 +1765,103 @@ mod tests {
 
     #[test]
     fn pi_working_unicode_ellipsis() {
-        assert_eq!(detect_pi("⠋ Working… (esc to interrupt)"), AgentState::Working);
+        assert_eq!(
+            detect_pi("⠋ Working… (esc to interrupt)"),
+            AgentState::Working
+        );
+    }
+
+    // Verbatim capture from omp 15.5.10 on mondo (Qwen3.6-27B): the `ask` tool's
+    // select dialog. Note the stale "Working… (esc to interrupt)" status row that
+    // the long-task extension leaves above the live dialog — Blocked must still
+    // win over Working here.
+    const OMP_ASK_DIALOG: &str = "\
+ ⠋ Working… (esc to interrupt)
+
+   Todos
+   └ I. Awaiting Selection
+   └ ☐ Await user's database choice
+
+────────────────────────────────────────────────────────────────────────────────────────────────
+
+ DB choice?
+
+────────────────────────────────────────────────────────────────────────────────────────────────
+│❯ PostgreSQL (Recommended)                                                                        │
+│  SQLite                                                                                          │
+│  Other (type your own)                                                                           │
+────────────────────────────────────────────────────────────────────────────────────────────────
+
+ up/down navigate  enter select  esc cancel
+
+────────────────────────────────────────────────────────────────────────────────────────────────";
+
+    #[test]
+    fn omp_blocked_ask_tool_select_dialog() {
+        assert_eq!(detect_omp(OMP_ASK_DIALOG), AgentState::Blocked);
+    }
+
+    #[test]
+    fn omp_blocked_wins_over_stale_working_spinner() {
+        // The capture above contains "Working… (esc to interrupt)"; confirm the
+        // Blocked footer chrome overrides the lingering Working indicator.
+        assert!(pi_style_working(OMP_ASK_DIALOG));
+        assert_eq!(detect_omp(OMP_ASK_DIALOG), AgentState::Blocked);
+    }
+
+    #[test]
+    fn omp_blocked_multi_question_nav_chrome() {
+        // Multi-question asks insert the ←/→ navigation hint into the footer.
+        let screen = " up/down navigate  enter select  ←/→ question  esc cancel";
+        assert_eq!(detect_omp(screen), AgentState::Blocked);
+    }
+
+    #[test]
+    fn omp_blocked_plan_approval_menu() {
+        // Plan-mode approval uses the same select dialog + footer help line
+        // (interactive-mode.ts:1941). Could not trigger it live on the 27B box,
+        // so this is built from the source-confirmed option labels + footer.
+        let screen = "\
+ Plan mode - next step
+
+────────────────────────────────────────────────
+│❯ Approve and execute                           │
+│  Approve and compact context                   │
+│  Approve and keep context                       │
+│  Refine plan                                    │
+────────────────────────────────────────────────
+
+ up/down navigate  enter select  esc cancel";
+        assert_eq!(detect_omp(screen), AgentState::Blocked);
+    }
+
+    #[test]
+    fn omp_idle_does_not_false_match_blocked() {
+        // Verbatim idle prompt box (no select-dialog footer chrome).
+        let screen = "\
+────────────────────────────────────────────────
+
+╭── π  > ⬢ Qwen3.6-27B (mondo) · ◕ high > 📁 ~/scratch/_test > ◫ 15.4%/70K ⟲ ▶──────────────────╮
+╰─                                                                                              ─╯";
+        assert_eq!(detect_omp(screen), AgentState::Idle);
+    }
+
+    #[test]
+    fn omp_working_does_not_false_match_blocked() {
+        // A plain working spinner without the dialog footer stays Working.
+        assert_eq!(
+            detect_omp("output\n ⠋ Working… (esc to interrupt)"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn pi_blocked_select_dialog() {
+        // pi shares the pi-tui select dialog, so the same chrome blocks pi too.
+        assert_eq!(
+            detect_pi(" up/down navigate  enter select  esc cancel"),
+            AgentState::Blocked
+        );
     }
 
     #[test]
