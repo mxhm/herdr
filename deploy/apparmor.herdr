@@ -22,12 +22,13 @@
 #   sudo install -m 0644 deploy/apparmor.herdr /etc/apparmor.d/herdr
 #   sudo apparmor_parser -r /etc/apparmor.d/herdr
 #
-# The glob matches any herdr binary in /nix/store, since the actual exec
-# path is /nix/store/<hash>-herdr-<version>/bin/herdr.
+# The glob matches the user-prefix install path used by the cargo deploy
+# (`~/.local/bin/herdr`). The attachment must match the binary that
+# actually runs, or herdr runs unconfined and the userns grant is lost.
 
 abi <abi/4.0>,
 include <tunables/global>
 
-profile herdr /nix/store/*-herdr-*/bin/herdr flags=(unconfined) {
+profile herdr /home/*/.local/bin/herdr flags=(unconfined) {
     userns,
 }

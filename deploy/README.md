@@ -1,24 +1,26 @@
-# Deploy — patched herdr via Nix flake + systemd system unit
+# Deploy — patched herdr via cargo build + systemd system unit
 
 Install the `omp-bwx-local` branch of this fork on a Linux host as a
 hardened systemd **system** unit that runs as your user. The pattern
-mirrors bwx's deployment: prctl/seccomp/cap-bounding hardening with
-explicit `PrivateMounts=no` so nested bubblewrap can mount its own
-procfs.
+mirrors bwx's deployment: a user-prefix (`~/.local`) cargo build, then
+prctl/seccomp/cap-bounding hardening with explicit `PrivateMounts=no`
+so nested bubblewrap can mount its own procfs.
+
+herdr's `build.rs` compiles a vendored `libghostty-vt` with **zig**, so
+the build needs a zig toolchain in addition to cargo. We use mise to
+provide both, matching how the rest of the toolchain is managed.
 
 ## Prerequisites
 
 - Linux host (tested on Ubuntu 24.04, systemd 255).
-- Nix installed (single-user is fine):
+- Rust toolchain (`cargo` on PATH) — e.g. `~/.cargo` via rustup.
+- zig **0.15.2** (the `minimum_zig_version` of the vendored
+  libghostty-vt), e.g. via mise:
   ```sh
-  sh <(curl -L https://nixos.org/nix/install) --no-daemon
-  exec $SHELL
+  mise use -g zig@0.15.2
   ```
-- Nix flakes enabled:
-  ```sh
-  mkdir -p ~/.config/nix
-  echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
-  ```
+- Build-time network access to crates.io **and** `deps.files.ghostty.org`
+  (zig fetches libghostty-vt's lazy deps on first build).
 - `bwx-host-setup` already run on the host so `/etc/apparmor.d/{bwx,bwrap}`
   are loaded (Ubuntu 24.04 enforces `kernel.apparmor_restrict_unprivileged_userns=1`).
   Verify: `aa-status | grep -E '(bwx|bwrap)'`.
@@ -30,15 +32,19 @@ procfs.
   (Substitute your preferred clone path. `~/herdr` is the
    convention used in the docs below.)
 
-## 1. Install via Nix
+## 1. Build + install via cargo
+
+`HERDR_SOURCE_MANAGED=1` bakes in a guard that disables herdr's
+self-update (the binary is owned by this checkout + installer, not
+herdr's updater).
 
 ```sh
-cd ~/herdr/deploy
-nix flake lock
-nix profile install .#default
-which herdr     # ~/.nix-profile/bin/herdr -> /nix/store/<hash>-herdr-…/bin/herdr
+cd ~/herdr
+ZIG=$(mise which zig) HERDR_SOURCE_MANAGED=1 cargo build --release
+install -Dm0755 target/release/herdr ~/.local/bin/herdr
+which herdr     # ~/.local/bin/herdr
 herdr --version
-herdr update    # expected: "self-update is disabled for Nix installs…"
+herdr update    # expected: "self-update is disabled for source builds…"
 ```
 
 ## 2. Install the AppArmor profile
@@ -57,9 +63,8 @@ sudo apparmor_parser -r /etc/apparmor.d/herdr
 sudo aa-status | grep herdr   # confirm loaded
 ```
 
-The shipped profile's binary glob `/nix/store/*-herdr-*/bin/herdr`
-covers any Nix-installed herdr. Adjust if you install via a different
-path.
+The shipped profile's binary glob `/home/*/.local/bin/herdr` covers the
+user-prefix cargo install. Adjust if you install via a different path.
 
 ## 3. Install the systemd unit
 
@@ -114,14 +119,14 @@ What's *not* protected:
 ```sh
 cd ~/herdr
 git pull origin omp-bwx-local
-cd deploy && nix flake update
-nix profile upgrade herdr
+ZIG=$(mise which zig) HERDR_SOURCE_MANAGED=1 cargo build --release
+install -Dm0755 target/release/herdr ~/.local/bin/herdr
 sudo systemctl restart herdr
 ```
 
 ## Acceptance
 
-- `herdr update` errors with the Nix message.
+- `herdr update` errors with the source-build message.
 - `omp` running natively in a herdr pane shows agent label `omp`
   (Patch A — verified live).
 - `bwx ... -- omp ...` running in a herdr pane shows agent label `omp`

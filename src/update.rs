@@ -22,6 +22,7 @@ const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/her
 const HERDR_UPDATE_COMMAND: &str = "herdr update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
+const SOURCE_UPDATE_COMMAND: &str = "rebuild from the fork and reinstall";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FAKE_UPDATE_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_VERSION";
 const FAKE_UPDATE_NOTES_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_NOTES_VERSION";
@@ -1422,9 +1423,20 @@ pub(crate) fn update_install_command() -> &'static str {
         HOMEBREW_UPDATE_COMMAND
     } else if is_nix_managed_install() {
         NIX_UPDATE_COMMAND
+    } else if is_source_managed_install() {
+        SOURCE_UPDATE_COMMAND
     } else {
         HERDR_UPDATE_COMMAND
     }
+}
+
+// A build is "source-managed" when compiled with HERDR_SOURCE_MANAGED set
+// (our cargo deploy build). Self-update is disabled — the binary is owned
+// by the source checkout + installer, not herdr's own updater. Inert
+// (returns false) for any build without the env var, so this is safe on
+// the upstream PR branch too.
+fn is_source_managed_install() -> bool {
+    option_env!("HERDR_SOURCE_MANAGED").is_some()
 }
 
 fn is_homebrew_managed_install() -> bool {
@@ -1770,6 +1782,12 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         );
     }
 
+    if is_source_managed_install() {
+        return Err(
+            "self-update is disabled for source builds; rebuild from the fork and reinstall".into(),
+        );
+    }
+
     if running_inside_herdr() {
         return Err("run `herdr update` outside herdr after detaching from the session".into());
     }
@@ -1824,6 +1842,9 @@ fn print_outdated_integration_notice_with_updated_binary(updated_exe: &Path) {
 /// Background update check: only surface availability and release notes.
 /// Runs in a background thread at startup.
 pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+    if is_source_managed_install() {
+        return;
+    }
     crate::logging::update_check_started();
     if let Ok(version) = env::var(FAKE_UPDATE_VERSION_ENV) {
         let version = version.trim();

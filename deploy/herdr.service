@@ -10,11 +10,11 @@ Type=simple
 User=CHANGEME
 Group=CHANGEME
 WorkingDirectory=%h
-ExecStart=%h/.nix-profile/bin/herdr server
+ExecStart=%h/.local/bin/herdr server
 Restart=on-failure
 RestartSec=5
 
-Environment=PATH=%h/.nix-profile/bin:%h/.local/share/mise/shims:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=%h
 
 # Hardening compatible with bwx-spawning panes. PrivateMounts=no is
