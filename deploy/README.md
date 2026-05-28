@@ -68,15 +68,17 @@ user-prefix cargo install. Adjust if you install via a different path.
 
 ## 3. Install the systemd unit
 
-The shipped unit has `User=CHANGEME` and `Group=CHANGEME` — **edit
-both to your local username before deploying**. `WorkingDirectory=`,
-`ExecStart=`, and the `Environment=PATH=` use `%h` which systemd
-expands to that user's `$HOME`, so no other edits are needed.
+The shipped unit has three placeholders to substitute: `User=CHANGEME`,
+`Group=CHANGEME`, and `__HOME__` (the absolute home dir, used by
+`WorkingDirectory=`/`ExecStart=`/`Environment=`). It deliberately does
+**not** use systemd's `%h` — for a system unit that resolves to `/root`,
+not your home.
 
 ```sh
 sudo install -m 0644 ~/herdr/deploy/herdr.service /etc/systemd/system/
 sudo sed -i "s/^User=CHANGEME$/User=$USER/" /etc/systemd/system/herdr.service
 sudo sed -i "s/^Group=CHANGEME$/Group=$(id -gn)/" /etc/systemd/system/herdr.service
+sudo sed -i "s|__HOME__|$HOME|g" /etc/systemd/system/herdr.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now herdr.service
 systemctl status herdr.service
