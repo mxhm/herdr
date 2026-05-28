@@ -207,19 +207,30 @@ pub fn detect_agent(agent: Option<Agent>, screen_content: &str) -> AgentDetectio
 // Per-agent detectors
 // ---------------------------------------------------------------------------
 
+// pi/omp render a spinner line like "⠋ Working… (esc to interrupt)" while
+// streaming. Match the stable parts: the trailing interrupt hint (shown only
+// while the turn is interruptible) and the "Working" label. Tolerate BOTH the
+// Unicode ellipsis "…" (U+2026, what current pi/omp emit) and the older ASCII
+// "..." — a bare "Working..." literal match silently broke when the TUI
+// switched to the ellipsis glyph, leaving the pane stuck on Idle.
+fn pi_style_working(content: &str) -> bool {
+    content.contains("esc to interrupt")
+        || content.contains("Working…")
+        || content.contains("Working...")
+}
+
 fn detect_pi(content: &str) -> AgentState {
-    // pi shows "Working..." when the agent is processing
-    if content.contains("Working...") {
+    if pi_style_working(content) {
         return AgentState::Working;
     }
     AgentState::Idle
 }
 
 fn detect_omp(content: &str) -> AgentState {
-    // omp (a fork of pi) shows "Working..." while the agent is processing.
-    // Blocked-state heuristics are deliberately minimal until the
-    // tool-approval prompt shapes have been observed across skills.
-    if content.contains("Working...") {
+    // omp is a fork of pi and shares the working indicator. Blocked-state
+    // heuristics are deliberately minimal until the tool-approval prompt
+    // shapes have been observed across skills.
+    if pi_style_working(content) {
         return AgentState::Working;
     }
     AgentState::Idle
@@ -1705,6 +1716,28 @@ mod tests {
     #[test]
     fn omp_idle_no_working_text() {
         assert_eq!(detect_omp("some output\n\n> ready"), AgentState::Idle);
+    }
+
+    #[test]
+    fn omp_working_unicode_ellipsis_spinner() {
+        // Verbatim from omp 15.5.10 (Unicode ellipsis U+2026 + interrupt hint).
+        assert_eq!(
+            detect_omp("output\n ⠋ Working… (esc to interrupt)"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn omp_working_interrupt_hint_alone() {
+        assert_eq!(
+            detect_omp("⠸ Working… (esc to interrupt)"),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn pi_working_unicode_ellipsis() {
+        assert_eq!(detect_pi("⠋ Working… (esc to interrupt)"), AgentState::Working);
     }
 
     #[test]
