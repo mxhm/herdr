@@ -45,6 +45,7 @@ pub enum AgentActivityVeto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Agent {
     Pi,
+    Omp,
     Claude,
     Codex,
     Gemini,
@@ -66,6 +67,7 @@ pub enum Agent {
 pub fn agent_label(agent: Agent) -> &'static str {
     match agent {
         Agent::Pi => "pi",
+        Agent::Omp => "omp",
         Agent::Claude => "claude",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
@@ -89,6 +91,7 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
     let name = normalized_agent_lookup_name(agent);
     match name.as_str() {
         "pi" => Some(Agent::Pi),
+        "omp" => Some(Agent::Omp),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -116,6 +119,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
     // Match against known binary names
     match name.as_str() {
         "pi" => Some(Agent::Pi),
+        "omp" => Some(Agent::Omp),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -397,6 +401,7 @@ fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) 
         "cmd" => windows_cmd_arg_agent_name(argv),
         "powershell" | "pwsh" => powershell_arg_agent_name(argv),
         "tmux" => None,
+        "bwx" => bwx_wrapped_agent_name(argv),
         _ => None,
     }
 }
@@ -476,6 +481,16 @@ fn command_text_token(input: &str) -> Option<(&str, &str)> {
 
     let end = input.find(char::is_whitespace).unwrap_or(input.len());
     Some((&input[..end], &input[end..]))
+}
+
+/// Extract the wrapped agent from a `bwx <flags...> -- <agent> [args...]`
+/// invocation. bwx (a sandbox launcher) splits on the first standalone `--`:
+/// everything before is bwx flags and workspaces, everything after is the
+/// command to run inside the sandbox.
+fn bwx_wrapped_agent_name(argv: &[String]) -> Option<String> {
+    let dash_idx = argv.iter().position(|a| a == "--")?;
+    let token = argv.get(dash_idx + 1)?;
+    agent_name_from_path_token(token)
 }
 
 fn script_arg_agent_name(
@@ -621,6 +636,7 @@ fn is_generic_runtime_or_shell(name: &str) -> bool {
             | "cmd"
             | "powershell"
             | "pwsh"
+            | "bwx"
     )
 }
 
@@ -720,6 +736,7 @@ mod tests {
     #[test]
     fn identify_known_agents() {
         assert_eq!(identify_agent("pi"), Some(Agent::Pi));
+        assert_eq!(identify_agent("omp"), Some(Agent::Omp));
         assert_eq!(identify_agent("claude"), Some(Agent::Claude));
         assert_eq!(identify_agent("claude-code"), Some(Agent::Claude));
         assert_eq!(identify_agent("codex"), Some(Agent::Codex));
@@ -748,6 +765,7 @@ mod tests {
     #[test]
     fn parse_known_agent_labels() {
         assert_eq!(parse_agent_label("pi"), Some(Agent::Pi));
+        assert_eq!(parse_agent_label("omp"), Some(Agent::Omp));
         assert_eq!(parse_agent_label("claude"), Some(Agent::Claude));
         assert_eq!(parse_agent_label("cursor-agent"), Some(Agent::Cursor));
         assert_eq!(parse_agent_label("agy"), Some(Agent::Antigravity));
@@ -769,6 +787,7 @@ mod tests {
     #[test]
     fn agent_labels_use_display_names() {
         assert_eq!(agent_label(Agent::Pi), "pi");
+        assert_eq!(agent_label(Agent::Omp), "omp");
         assert_eq!(agent_label(Agent::GithubCopilot), "copilot");
         assert_eq!(agent_label(Agent::OpenCode), "opencode");
         assert_eq!(agent_label(Agent::Antigravity), "agy");
@@ -916,6 +935,23 @@ mod tests {
     }
 
     #[test]
+    fn identify_agent_in_job_unwraps_bwx_sandbox() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 200,
+            processes: vec![foreground_process(
+                200,
+                "bwx",
+                &["bwx", "--allow-loopback", "8000", "--", "omp", "-p", "x"],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Omp, "omp".to_string()))
+        );
+    }
+
+    #[test]
     fn identify_agent_in_job_detects_powershell_file_wrapped_claude() {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
@@ -935,6 +971,24 @@ mod tests {
             identify_agent_in_job(&job),
             Some((Agent::Claude, "claude".to_string()))
         );
+    }
+
+    #[test]
+    fn bwx_wrapped_agent_name_returns_none_without_double_dash() {
+        let argv: Vec<String> = ["bwx", "--allow-loopback", "8000", "omp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(bwx_wrapped_agent_name(&argv), None);
+    }
+
+    #[test]
+    fn bwx_wrapped_agent_name_handles_absolute_path() {
+        let argv: Vec<String> = ["bwx", "--", "/nix/store/abc-omp-1.0/bin/omp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(bwx_wrapped_agent_name(&argv), Some("omp".to_string()));
     }
 
     #[test]

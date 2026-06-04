@@ -12,6 +12,7 @@ pub(super) mod hermes;
 pub(super) mod kilo;
 pub(super) mod kimi;
 pub(super) mod kiro;
+pub(super) mod omp;
 pub(super) mod opencode;
 pub(super) mod pi;
 pub(super) mod qodercli;
@@ -21,6 +22,7 @@ use super::{Agent, AgentDetection, AgentState};
 pub(super) fn detect(agent: Agent, screen_content: &str) -> AgentDetection {
     let state = match agent {
         Agent::Pi => pi::detect(screen_content),
+        Agent::Omp => omp::detect(screen_content),
         Agent::Claude => claude_code::detect(screen_content),
         Agent::Codex => codex::detect(screen_content),
         Agent::Gemini => gemini::detect(screen_content),

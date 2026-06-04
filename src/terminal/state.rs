@@ -991,7 +991,9 @@ mod tests {
 
         assert_eq!(terminal.detected_agent, None);
         assert_eq!(terminal.effective_agent_label(), Some("omp"));
-        assert_eq!(terminal.effective_known_agent(), None);
+        // Our fork adds Agent::Omp, so a hook-reported "omp" now resolves to a
+        // known variant (upstream treated it as label-only -> None).
+        assert_eq!(terminal.effective_known_agent(), Some(Agent::Omp));
         assert_eq!(terminal.state, AgentState::Working);
 
         let change = terminal.set_detected_state_with_visible_blocker(
