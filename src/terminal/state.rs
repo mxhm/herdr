@@ -1055,7 +1055,9 @@ mod tests {
 
         assert_eq!(terminal.detected_agent, None);
         assert_eq!(terminal.effective_agent_label(), Some("omp"));
-        assert_eq!(terminal.effective_known_agent(), None);
+        // Our fork adds Agent::Omp, so a hook-reported "omp" now resolves to a
+        // known variant (upstream treated it as label-only -> None).
+        assert_eq!(terminal.effective_known_agent(), Some(Agent::Omp));
         assert_eq!(terminal.state, AgentState::Working);
 
         let change = terminal.set_detected_state_with_visible_blocker(
@@ -1155,9 +1157,15 @@ mod tests {
     }
 
     #[test]
-    fn process_exit_clears_omp_full_lifecycle_hook_authority_without_known_agent() {
+    fn process_exit_clears_omp_full_lifecycle_hook_authority() {
+        // Our fork adds Agent::Omp, so omp is now a known *detected* variant
+        // (the patched process-detection path), not hook-label-only. On process
+        // exit the matching hook authority clears, exactly like the pi twin
+        // above. (Upstream's pre-fork test passed a `None` detected agent and
+        // relied on `parse_agent_label("omp") == None`.)
         let now = Instant::now();
         let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Omp), AgentState::Working);
         terminal.set_hook_authority_with_custom_status_at(
             "herdr:omp".into(),
             "omp".into(),
@@ -1170,7 +1178,7 @@ mod tests {
         );
 
         let change = terminal.set_detected_state_with_screen_signals_at(
-            None,
+            Some(Agent::Omp),
             AgentState::Idle,
             false,
             true,
