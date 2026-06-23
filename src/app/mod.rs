@@ -187,6 +187,14 @@ fn repeat_key_identity(
 }
 
 fn auto_updates_enabled(no_session: bool) -> bool {
+    // Fork: never phone home to herdr.dev by default — neither the binary
+    // self-update (latest.json/preview.json) nor the agent-detection catalog
+    // (agent-detection/index.toml). This is a source-managed, egress-controlled
+    // deployment; detection rules ship in the build and updates land via git
+    // pull + rebuild. Opt back in per-host with HERDR_ENABLE_AUTO_UPDATE=1.
+    if std::env::var_os("HERDR_ENABLE_AUTO_UPDATE").is_none() {
+        return false;
+    }
     !no_session && !cfg!(debug_assertions)
 }
 
