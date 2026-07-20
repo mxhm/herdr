@@ -1,0 +1,36 @@
+id = "omp"
+version = "2026.06.22.1"
+min_engine_version = 1
+updated_at = "2026-06-22T00:00:00Z"
+aliases = []
+
+# omp is a fork of pi: same "Working…/Working..." spinner and the same pi-tui
+# select dialog used by the `ask` tool and plan-mode approval. `contains` is
+# case-insensitive (the engine lowercases both screen and needle) and ANDs the
+# array, so the OR'd working indicators go under `any`.
+
+# Blocked must outrank working (priority 200 > 100): a stale
+# "Working… (esc to interrupt)" row often lingers in scrollback above a live
+# select dialog. Footer "… navigate  enter select  esc cancel" is unique to the
+# pi-tui select dialog (absent from the spinner and the idle prompt box).
+[[rules]]
+id = "select_dialog_blocked"
+state = "blocked"
+priority = 200
+region = "whole_recent"
+visible_blocker = true
+contains = ["enter select", "navigate"]
+
+# Spinner: tolerate the Unicode ellipsis "…" (what current pi/omp emit) and the
+# older ASCII "..."; the interrupt hint shows only while the turn is running.
+[[rules]]
+id = "working_spinner"
+state = "working"
+priority = 100
+region = "whole_recent"
+visible_working = true
+any = [
+  { contains = ["esc to interrupt"] },
+  { contains = ["working…"] },
+  { contains = ["working..."] },
+]

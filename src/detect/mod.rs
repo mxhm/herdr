@@ -93,7 +93,7 @@ impl Agent {
         Self::Muse,
     ];
 
-    pub const SCREEN_MANIFEST_AGENTS: [Self; 21] = [
+    pub const SCREEN_MANIFEST_AGENTS: [Self; 22] = [
         Self::Pi,
         Self::Claude,
         Self::Codex,
@@ -102,6 +102,7 @@ impl Agent {
         Self::Devin,
         Self::Antigravity,
         Self::Cline,
+        Self::Omp,
         Self::OpenCode,
         Self::GithubCopilot,
         Self::Kimi,
@@ -407,6 +408,7 @@ fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) 
         "cmd" => windows_cmd_arg_agent_name(argv),
         "powershell" | "pwsh" => powershell_arg_agent_name(argv),
         "tmux" => None,
+        "bwx" => bwx_wrapped_agent_name(argv),
         _ => None,
     }
 }
@@ -516,6 +518,16 @@ fn command_text_token(input: &str) -> Option<(&str, &str)> {
 
     let end = input.find(char::is_whitespace).unwrap_or(input.len());
     Some((&input[..end], &input[end..]))
+}
+
+/// Extract the wrapped agent from a `bwx <flags...> -- <agent> [args...]`
+/// invocation. bwx (a sandbox launcher) splits on the first standalone `--`:
+/// everything before is bwx flags and workspaces, everything after is the
+/// command to run inside the sandbox.
+fn bwx_wrapped_agent_name(argv: &[String]) -> Option<String> {
+    let dash_idx = argv.iter().position(|a| a == "--")?;
+    let token = argv.get(dash_idx + 1)?;
+    agent_name_from_path_token(token)
 }
 
 fn script_arg_agent_name(
@@ -707,6 +719,7 @@ fn is_generic_runtime_or_shell(name: &str) -> bool {
                 | "cmd"
                 | "powershell"
                 | "pwsh"
+                | "bwx"
         )
 }
 
@@ -1159,6 +1172,41 @@ mod tests {
             identify_agent_in_job(&job),
             Some((Agent::Omp, "omp".to_string()))
         );
+    }
+
+    #[test]
+    fn identify_agent_in_job_unwraps_bwx_sandbox() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 200,
+            processes: vec![foreground_process(
+                200,
+                "bwx",
+                &["bwx", "--allow-loopback", "8000", "--", "omp", "-p", "x"],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Omp, "omp".to_string()))
+        );
+    }
+
+    #[test]
+    fn bwx_wrapped_agent_name_returns_none_without_double_dash() {
+        let argv: Vec<String> = ["bwx", "--allow-loopback", "8000", "omp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(bwx_wrapped_agent_name(&argv), None);
+    }
+
+    #[test]
+    fn bwx_wrapped_agent_name_handles_absolute_path() {
+        let argv: Vec<String> = ["bwx", "--", "/nix/store/abc-omp-1.0/bin/omp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(bwx_wrapped_agent_name(&argv), Some("omp".to_string()));
     }
 
     #[test]
