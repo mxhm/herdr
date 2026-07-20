@@ -1,0 +1,77 @@
+[Unit]
+Description=herdr server (terminal workspace manager for AI coding agents)
+After=network.target
+
+[Service]
+Type=simple
+
+# Required: substitute the placeholders before deploying — User=, Group=,
+# and __HOME__ (the user's home dir). Do NOT use systemd's %h here: for a
+# *system* unit %h resolves to the manager's home (/root), not User='s
+# home, which would break ExecStart. The installer replaces __HOME__ with
+# the absolute path (e.g. /home/alice).
+User=CHANGEME
+Group=CHANGEME
+WorkingDirectory=__HOME__
+ExecStart=__HOME__/.local/bin/herdr server
+Restart=on-failure
+RestartSec=5
+
+Environment=PATH=__HOME__/.local/bin:__HOME__/.local/share/mise/shims:__HOME__/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=__HOME__
+
+# Hardening compatible with bwx-spawning panes. PrivateMounts=no is
+# load-bearing: any directive that creates a private mount namespace
+# (ProtectSystem, ProtectHome, PrivateTmp, PrivateDevices,
+# ProtectKernel{Tunables,Modules,Logs,Clock,Hostname}, ReadOnlyPaths,
+# ...) causes systemd to bind-mount RO over parts of /proc, which
+# trips the kernel's mount_too_revealing() check when bwrap tries to
+# mount a fresh procfs inside its user namespace -- failing with
+# "Can't mount proc on /newroot/proc: Operation not permitted".
+# Documented at containers/bubblewrap#707, systemd#35369.
+#
+# So we explicitly disable the implicit private mount namespace and
+# rely on prctl/seccomp/cap-bounding hardening that doesn't require it.
+# What's lost: filesystem-level isolation. Acceptable because the
+# herdr binary runs as the user (no caps) -- it can't write to /usr,
+# /etc, /boot anyway. The pane shells inherit the same uid, so the
+# multiplexer use case is unchanged. The agent inside bwx is isolated
+# by bwx's own user/mount/pid namespace, not by herdr's.
+PrivateMounts=no
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictRealtime=yes
+LockPersonality=yes
+# MemoryDenyWriteExecute is intentionally NOT set. It installs a tree-wide
+# seccomp filter denying W+X mappings (mmap/mprotect PROT_EXEC on writable
+# memory), inherited by every pane shell and the workloads they run. That
+# breaks legitimate runtime codegen the panes need: libffi/cffi closures
+# (e.g. pyOpenSSL set_verify -> ffi.callback), polars' CPUID probe, and any
+# JIT (numba, V8, torch.compile). Symptoms: "Cannot allocate write+execute
+# memory" / "could not execute mprotect for CPUID check". W^X is a
+# per-application mitigation; herdr's panes are general-purpose user shells,
+# and herdr already runs as the user with no caps -- so it buys little here
+# while making workloads non-portable. Same trade-off logic as PrivateMounts.
+SystemCallArchitectures=native
+
+# @system-service is the curated whitelist for system services.
+# @mount and sethostname must be added explicitly -- bwrap needs both.
+# @debug is added explicitly so pane workloads can be debugged/profiled:
+# ptrace + process_vm_readv power strace, gdb/lldb, py-spy, and perf
+# (perf_event_open). It is NOT in @system-service, so it must be allowed
+# here, not merely un-denied below. Security cost is small: ptrace is
+# same-uid and Yama-gated, so a compromised herdr gains little it couldn't
+# already do as the user.
+SystemCallFilter=@system-service @mount sethostname @debug
+# Deny categories an exploited herdr could abuse: the kernel keyring,
+# guest emulation (@cpu-emulation), or deprecated syscalls.
+SystemCallFilter=~@keyring @cpu-emulation @obsolete
+
+# AmbientCapabilities= (empty) -- herdr starts with no ambient caps.
+# CapabilityBoundingSet cannot be empty: bwrap needs CAP_SYS_ADMIN
+# inside its own user namespace for mount, sethostname, unshare. The
+# bounding set propagates to children, so an empty set would break bwx.
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
