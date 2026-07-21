@@ -6,15 +6,15 @@
 # strips capabilities from any process that creates an unprivileged user
 # namespace unless an AppArmor profile grants `userns`. herdr itself does
 # not unshare user namespaces -- but it spawns pane shells that, in turn,
-# spawn bwx -> bwrap. When the systemd unit applies any directive that
+# spawn basta -> bwrap. When the systemd unit applies any directive that
 # triggers a private mount namespace, bwrap inherits that namespace and
 # AppArmor's profile-by-path matching falls back to the generic
 # `unprivileged_userns` profile (despite /etc/apparmor.d/bwrap being
 # installed), denying bwrap's own namespace setup with "Failed name
 # lookup - disconnected path".
 #
-# Mirrors bwx's pattern: flags=(unconfined) -- the security boundary for
-# herdr is the systemd unit (seccomp + cap bounding) + bwx's own
+# Mirrors basta's pattern: flags=(unconfined) -- the security boundary for
+# herdr is the systemd unit (seccomp + cap bounding) + basta's own
 # isolation of the agent inside the sandbox. AppArmor on herdr exists
 # only to satisfy kernel.apparmor_restrict_unprivileged_userns=1.
 #
