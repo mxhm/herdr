@@ -1,8 +1,8 @@
 # Deploy — patched herdr via cargo build + systemd system unit
 
-Install the `omp-bwx-local` branch of this fork on a Linux host as a
+Install the `omp-basta-local` branch of this fork on a Linux host as a
 hardened systemd **system** unit that runs as your user. The pattern
-mirrors bwx's deployment: a user-prefix (`~/.local`) cargo build, then
+mirrors basta's deployment: a user-prefix (`~/.local`) cargo build, then
 prctl/seccomp/cap-bounding hardening with explicit `PrivateMounts=no`
 so nested bubblewrap can mount its own procfs.
 
@@ -21,13 +21,13 @@ provide both, matching how the rest of the toolchain is managed.
   ```
 - Build-time network access to crates.io **and** `deps.files.ghostty.org`
   (zig fetches libghostty-vt's lazy deps on first build).
-- `bwx-host-setup` already run on the host so `/etc/apparmor.d/{bwx,bwrap}`
+- `basta-host-setup` already run on the host so `/etc/apparmor.d/{basta,bwrap}`
   are loaded (Ubuntu 24.04 enforces `kernel.apparmor_restrict_unprivileged_userns=1`).
-  Verify: `aa-status | grep -E '(bwx|bwrap)'`.
-- This fork cloned on the `omp-bwx-local` branch:
+  Verify: `aa-status | grep -E '(basta|bwrap)'`.
+- This fork cloned on the `omp-basta-local` branch:
   ```sh
   # Substitute <YOUR_GH_USER> with the GitHub account hosting the fork.
-  git clone --branch omp-bwx-local https://github.com/<YOUR_GH_USER>/herdr ~/herdr
+  git clone --branch omp-basta-local https://github.com/<YOUR_GH_USER>/herdr ~/herdr
   ```
   (Substitute your preferred clone path. `~/herdr` is the
    convention used in the docs below.)
@@ -49,7 +49,7 @@ herdr update    # expected: "self-update is disabled for source builds…"
 
 ## 2. Install the AppArmor profile
 
-bwx-host-setup ships `/etc/apparmor.d/{bwx,bwrap}`, but those aren't
+basta-host-setup ships `/etc/apparmor.d/{basta,bwrap}`, but those aren't
 enough when systemd-wrapped herdr spawns bwrap from a pane. AppArmor's
 path-based profile match for `/usr/bin/bwrap` fails inside herdr's
 namespace and falls back to the generic `unprivileged_userns`
@@ -113,14 +113,14 @@ What's *not* protected:
 - The user's `$HOME` is fully accessible (the multiplexer needs it).
 - `/usr`, `/etc`, `/boot` aren't read-only-bound — but the user can't
   write them anyway (root-owned).
-- bwx-spawned agents are isolated by **bwx's** own namespaces, not
+- basta-spawned agents are isolated by **basta's** own namespaces, not
   herdr's.
 
 ## Upgrade
 
 ```sh
 cd ~/herdr
-git pull origin omp-bwx-local
+git pull origin omp-basta-local
 ZIG=$(mise which zig) HERDR_SOURCE_MANAGED=1 cargo build --release
 install -Dm0755 target/release/herdr ~/.local/bin/herdr
 sudo systemctl restart herdr
@@ -131,11 +131,11 @@ sudo systemctl restart herdr
 - `herdr update` errors with the source-build message.
 - `omp` running natively in a herdr pane shows agent label `omp`
   (Patch A — verified live).
-- `bwx ... -- omp ...` running in a herdr pane shows agent label `omp`
-  via bwx wrapper extraction (Patch B — verified live on Ubuntu 24.04
+- `basta ... -- omp ...` running in a herdr pane shows agent label `omp`
+  via basta wrapper extraction (Patch B — verified live on Ubuntu 24.04
   + systemd 255).
 - `journalctl -u herdr -n 200` shows no syscall denials.
-- `pgrep -af "bwx|bwrap"` inside a herdr pane shows the full sandbox
+- `pgrep -af "basta|bwrap"` inside a herdr pane shows the full sandbox
   process tree.
 
 ## Troubleshooting
@@ -143,8 +143,8 @@ sudo systemctl restart herdr
 | Symptom | Cause | Fix |
 |---|---|---|
 | `bwrap: Can't mount proc on /newroot/proc: Operation not permitted` | Some Protect*/Private* directive crept back in | Confirm `systemctl show -p PrivateMounts herdr.service` returns `PrivateMounts=no` |
-| `bwrap: Can't set hostname to bwx: Operation not permitted` | `ProtectHostname=yes` set | Remove it |
+| `bwrap: Can't set hostname to basta: Operation not permitted` | `ProtectHostname=yes` set | Remove it |
 | `bwrap: loopback: Failed to create NETLINK_ROUTE socket: Address family not supported by protocol` | `AF_NETLINK` missing from `RestrictAddressFamilies=` | Add it |
 | AppArmor `unprivileged_userns` denying bwrap (check `dmesg \| grep apparmor`) | `apparmor.herdr` not loaded, or the binary path doesn't match the profile glob | Adjust the path glob in `apparmor.herdr` and `apparmor_parser -r` |
 | `status=218/CAPABILITIES` at startup | Trying to use cap/namespace directives that require root | Already excluded in the shipped unit |
-| `Failed to drop capabilities` | `CapabilityBoundingSet=` empty | Empty set is incompatible with bwx (bwrap needs CAP_SYS_ADMIN in its userns). Keep it unset; rely on `AmbientCapabilities=` for the "no caps added" part |
+| `Failed to drop capabilities` | `CapabilityBoundingSet=` empty | Empty set is incompatible with basta (bwrap needs CAP_SYS_ADMIN in its userns). Keep it unset; rely on `AmbientCapabilities=` for the "no caps added" part |

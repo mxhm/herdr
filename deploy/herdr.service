@@ -20,7 +20,7 @@ RestartSec=5
 Environment=PATH=__HOME__/.local/bin:__HOME__/.local/share/mise/shims:__HOME__/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=__HOME__
 
-# Hardening compatible with bwx-spawning panes. PrivateMounts=no is
+# Hardening compatible with basta-spawning panes. PrivateMounts=no is
 # load-bearing: any directive that creates a private mount namespace
 # (ProtectSystem, ProtectHome, PrivateTmp, PrivateDevices,
 # ProtectKernel{Tunables,Modules,Logs,Clock,Hostname}, ReadOnlyPaths,
@@ -35,8 +35,8 @@ Environment=HOME=__HOME__
 # What's lost: filesystem-level isolation. Acceptable because the
 # herdr binary runs as the user (no caps) -- it can't write to /usr,
 # /etc, /boot anyway. The pane shells inherit the same uid, so the
-# multiplexer use case is unchanged. The agent inside bwx is isolated
-# by bwx's own user/mount/pid namespace, not by herdr's.
+# multiplexer use case is unchanged. The agent inside basta is isolated
+# by basta's own user/mount/pid namespace, not by herdr's.
 PrivateMounts=no
 NoNewPrivileges=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
@@ -70,7 +70,7 @@ SystemCallFilter=~@keyring @cpu-emulation @obsolete
 # AmbientCapabilities= (empty) -- herdr starts with no ambient caps.
 # CapabilityBoundingSet cannot be empty: bwrap needs CAP_SYS_ADMIN
 # inside its own user namespace for mount, sethostname, unshare. The
-# bounding set propagates to children, so an empty set would break bwx.
+# bounding set propagates to children, so an empty set would break basta.
 AmbientCapabilities=
 
 [Install]
