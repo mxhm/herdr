@@ -1,7 +1,7 @@
 id = "omp"
-version = "2026.06.22.1"
+version = "2026.07.21.1"
 min_engine_version = 1
-updated_at = "2026-06-22T00:00:00Z"
+updated_at = "2026-07-21T00:00:00Z"
 aliases = []
 
 # omp is a fork of pi: same "Working…/Working..." spinner and the same pi-tui
@@ -11,15 +11,18 @@ aliases = []
 
 # Blocked must outrank working (priority 200 > 100): a stale
 # "Working… (esc to interrupt)" row often lingers in scrollback above a live
-# select dialog. Footer "… navigate  enter select  esc cancel" is unique to the
-# pi-tui select dialog (absent from the spinner and the idle prompt box).
+# select dialog. "enter select" is the pi-tui select-dialog action label (the
+# `ask` tool + plan-mode approval), absent from the spinner ("esc to interrupt")
+# and the idle prompt box. omp 17.x dropped the old "navigate" token — the
+# footer is now "Enter select · n note · ↑/↓ move · Esc cancel" — so we key on
+# the stable "enter select" alone. Verified live on omp 17.0.5.
 [[rules]]
 id = "select_dialog_blocked"
 state = "blocked"
 priority = 200
 region = "whole_recent"
 visible_blocker = true
-contains = ["enter select", "navigate"]
+contains = ["enter select"]
 
 # Spinner: tolerate the Unicode ellipsis "…" (what current pi/omp emit) and the
 # older ASCII "..."; the interrupt hint shows only while the turn is running.
