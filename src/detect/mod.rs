@@ -408,7 +408,7 @@ fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) 
         "cmd" => windows_cmd_arg_agent_name(argv),
         "powershell" | "pwsh" => powershell_arg_agent_name(argv),
         "tmux" => None,
-        "basta" => basta_wrapped_agent_name(argv),
+        "basta" | "nono" => basta_wrapped_agent_name(argv),
         _ => None,
     }
 }
@@ -520,10 +520,12 @@ fn command_text_token(input: &str) -> Option<(&str, &str)> {
     Some((&input[..end], &input[end..]))
 }
 
-/// Extract the wrapped agent from a `basta <flags...> -- <agent> [args...]`
-/// invocation. basta (a sandbox launcher) splits on the first standalone `--`:
-/// everything before is basta flags and workspaces, everything after is the
-/// command to run inside the sandbox.
+/// Extract the wrapped agent from a `<launcher> <flags...> -- <agent> [args...]`
+/// invocation. Both of our sandbox launchers split on the first standalone `--`:
+/// everything before is launcher flags and workspaces, everything after is the
+/// command to run inside the sandbox. Handles `basta` and `nono` alike — nono's
+/// `run` subcommand sits before the `--` and needs no special case. Kept under the
+/// basta name to hold the fork's diff against upstream as small as possible.
 fn basta_wrapped_agent_name(argv: &[String]) -> Option<String> {
     let dash_idx = argv.iter().position(|a| a == "--")?;
     let token = argv.get(dash_idx + 1)?;
@@ -720,6 +722,7 @@ fn is_generic_runtime_or_shell(name: &str) -> bool {
                 | "powershell"
                 | "pwsh"
                 | "basta"
+                | "nono"
         )
 }
 
@@ -1187,6 +1190,29 @@ mod tests {
 
         assert_eq!(
             identify_agent_in_job(&job),
+            Some((Agent::Omp, "omp".to_string()))
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_unwraps_nono_sandbox() {
+        assert_eq!(
+            identify_agent_in_job(
+                "nono",
+                &[
+                    "nono",
+                    "run",
+                    "--allow-domain",
+                    "github.com",
+                    "--",
+                    "omp",
+                    "-p",
+                    "x"
+                ]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+            ),
             Some((Agent::Omp, "omp".to_string()))
         );
     }
