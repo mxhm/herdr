@@ -1196,8 +1196,10 @@ mod tests {
 
     #[test]
     fn identify_agent_in_job_unwraps_nono_sandbox() {
-        assert_eq!(
-            identify_agent_in_job(
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 201,
+            processes: vec![foreground_process(
+                201,
                 "nono",
                 &[
                     "nono",
@@ -1207,12 +1209,13 @@ mod tests {
                     "--",
                     "omp",
                     "-p",
-                    "x"
-                ]
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-            ),
+                    "x",
+                ],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
             Some((Agent::Omp, "omp".to_string()))
         );
     }
