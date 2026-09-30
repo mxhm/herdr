@@ -99,7 +99,7 @@ mount namespace:
 
 | Directive | Blocks (concrete attacker move) |
 |---|---|
-| `NoNewPrivileges=yes` | exec'ing setuid binaries (`sudo`, `passwd`) to escalate |
+| `NoNewPrivileges=no` | setuid binaries such as `sudo` and `passwd` can operate normally; this allows every herdr pane to use the user's configured sudo privileges |
 | `SystemCallFilter=~@debug` | `ptrace`/`process_vm_readv` — exploit-one-process-and-scrape-another |
 | `SystemCallFilter=~@keyring` | abusing kernel keyring API |
 | `MemoryDenyWriteExecute=yes` | JIT-spray exploit techniques |
