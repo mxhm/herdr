@@ -1,6 +1,6 @@
 # Deploy — patched herdr via cargo build + systemd system unit
 
-Install the `omp-basta-local` branch of this fork on a Linux host as a
+Install the `omp-sandboxed` branch of this fork on a Linux host as a
 hardened systemd **system** unit that runs as your user. The pattern
 mirrors basta's deployment: a user-prefix (`~/.local`) cargo build, then
 prctl/seccomp/cap-bounding hardening with explicit `PrivateMounts=no`
@@ -24,10 +24,10 @@ provide both, matching how the rest of the toolchain is managed.
 - `basta-host-setup` already run on the host so `/etc/apparmor.d/{basta,bwrap}`
   are loaded (Ubuntu 24.04 enforces `kernel.apparmor_restrict_unprivileged_userns=1`).
   Verify: `aa-status | grep -E '(basta|bwrap)'`.
-- This fork cloned on the `omp-basta-local` branch:
+- This fork cloned on the `omp-sandboxed` branch:
   ```sh
   # Substitute <YOUR_GH_USER> with the GitHub account hosting the fork.
-  git clone --branch omp-basta-local https://github.com/<YOUR_GH_USER>/herdr ~/herdr
+  git clone --branch omp-sandboxed https://github.com/<YOUR_GH_USER>/herdr ~/herdr
   ```
   (Substitute your preferred clone path. `~/herdr` is the
    convention used in the docs below.)
@@ -120,7 +120,7 @@ What's *not* protected:
 
 ```sh
 cd ~/herdr
-git pull origin omp-basta-local
+git pull origin omp-sandboxed
 ZIG=$(mise which zig) HERDR_SOURCE_MANAGED=1 cargo build --release
 install -Dm0755 target/release/herdr ~/.local/bin/herdr
 sudo systemctl restart herdr
