@@ -3013,11 +3013,13 @@ fn ghostty_recent_text_unwrapped_for_terminal(
     let Some((start, end, cols)) = ghostty_recent_read_range(terminal, lines)? else {
         return Ok(String::new());
     };
-    terminal.read_text_screen(
-        (0, start as u32),
-        (cols.saturating_sub(1), end as u32),
-        false,
-    )
+    terminal
+        .read_text_screen(
+            (0, start as u32),
+            (cols.saturating_sub(1), end as u32),
+            false,
+        )
+        .map(|text| hide_kitty_unicode_placeholders(&text))
 }
 
 fn ghostty_recent_ansi_for_terminal(
@@ -3096,8 +3098,10 @@ fn ghostty_extract_selection(
     selection: &crate::selection::Selection,
 ) -> Result<String, crate::ghostty::Error> {
     let ((start_row, start_col), (end_row, end_col)) = selection.ordered_cells();
-    core.terminal
-        .read_text_screen((start_col, start_row), (end_col, end_row), false)
+    let text = core
+        .terminal
+        .read_text_screen((start_col, start_row), (end_col, end_row), false)?;
+    Ok(hide_kitty_unicode_placeholders(&text))
 }
 
 fn ghostty_screen_row(
@@ -3123,6 +3127,38 @@ fn ghostty_screen_row(
         }
     })?;
     Ok(line.trim_end().to_string())
+}
+
+/// libghostty-vt represents a kitty image cell as the unicode placeholder
+/// (U+10EEEE) carrying two row/column diacritics. The cell-level readers blank
+/// those (`ghostty_screen_row`, `ghostty_cell_symbol`), but `read_text_screen`
+/// hands the raw grapheme through, so copying a selection over an image — and
+/// `--source recent-unwrapped` — yields the placeholder instead of the blank
+/// cells the pane shows.
+fn hide_kitty_unicode_placeholders(text: &str) -> String {
+    if !text.contains('\u{10EEEE}') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{10EEEE}' {
+            out.push(ch);
+            continue;
+        }
+        out.push(' ');
+        // The row/column values ride on the placeholder as exactly two
+        // combining marks from the protocol's diacritic table (all non-ASCII).
+        for _ in 0..2 {
+            match chars.peek() {
+                Some(&next) if !next.is_ascii() && !next.is_whitespace() => {
+                    chars.next();
+                }
+                _ => break,
+            }
+        }
+    }
+    out
 }
 
 fn ghostty_line_from_cells(
@@ -5899,6 +5935,44 @@ mod tests {
             .extract_selection(&selection)
             .expect("selection should extract text");
         assert_eq!(text, "000003\n000004\n000005");
+    }
+
+    #[test]
+    fn extract_selection_blanks_kitty_unicode_placeholder_cells() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(8, 3, 1024).unwrap();
+        terminal.write(
+            "\u{10eeee}\u{0305}\u{0305}\u{10eeee}\u{0305}\u{030D}image?\r\nbelow1\r\n".as_bytes(),
+        );
+        terminal.write(b"above1");
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let metrics = pane.scroll_metrics().expect("scroll metrics");
+        let mut selection =
+            crate::selection::Selection::anchor(PaneId::from_raw(1), 0, 0, Some(metrics));
+        selection.drag(7, 2, Rect::new(0, 0, 8, 3), Some(metrics));
+
+        let text = pane
+            .extract_selection(&selection)
+            .expect("selection should extract text");
+        assert_eq!(text, "  image?\nbelow1\nabove1");
+    }
+
+    #[test]
+    fn recent_unwrapped_text_blanks_kitty_unicode_placeholder_cells() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(8, 3, 1024).unwrap();
+        terminal.write(
+            "\u{10eeee}\u{0305}\u{0305}\u{10eeee}\u{0305}\u{030D}image?\r\nbelow1\r\n".as_bytes(),
+        );
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let text = pane.recent_unwrapped_text(3);
+        assert!(!text.contains('\u{10EEEE}'), "placeholder leaked: {text:?}");
+        assert!(
+            text.contains("image?"),
+            "text beside the image lost: {text:?}"
+        );
     }
 
     #[test]
